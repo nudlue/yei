@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sound Classifier Demo</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0/dist/tf.min.js"></script>
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 40px; }
+    button { padding: 12px 24px; font-size: 20px; }
+    #result { margin-top: 30px; font-size: 30px; }
+    #emoji { font-size: 80px; margin-top: 10px; }
+  </style>
+</head>
+
+<body>
+  <h1>🔊 실시간 소리 분류기</h1>
+  <button id="startBtn">녹음 시작</button>
+
+  <div id="result">대기 중...</div>
+  <div id="emoji">😶</div>
+
+  <script>
+    let model;
+    let listening = false;
+    let audioContext, analyser, microphone, dataArray;
+
+    const labels = ["Baby Crying", "Doorbell", "Fire Alarm", "배경 소음"];
+    const emojis = {
+      "Baby Crying": "👶😭",
+      "Doorbell": "🚪🔔",
+      "Fire Alarm": "🔥🚨",
+      "배경 소음": "🌫️"
+    };
+
+    async function loadModel() {
+      model = await tf.loadLayersModel("model.json");
+      console.log("Model loaded!");
+    }
+
+    async function startRecording() {
+      if (listening) return;
+      listening = true;
+
+      audioContext = new AudioContext();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      microphone = audioContext.createMediaStreamSource(stream);
+
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 1024;
+      dataArray = new Float32Array(analyser.fftSize);
+      microphone.connect(analyser);
+
+      loop();
+    }
+
+    async function loop() {
+      analyser.getFloatTimeDomainData(dataArray);
+
+      // 모델 입력 크기 (model.json 확인 결과): [43, 232, 1]
+      let input = tf.tensor(dataArray).slice([0], [996]); 
+      input = tf.signal.stft(input, 256, 128);           
+      input = tf.abs(input).expandDims(-1);              
+      input = tf.image.resizeBilinear(input, [43, 232]); 
+      input = input.expandDims(0);                       
+
+      const prediction = model.predict(input);
+      const scores = await prediction.data();
+      const idx = scores.indexOf(Math.max(...scores));
+
+      updateUI(labels[idx]);
+
+      requestAnimationFrame(loop);
+    }
+
+    function updateUI(label) {
+      document.getElementById("result").innerText = `인식 결과: ${label}`;
+      document.getElementById("emoji").innerText = emojis[label];
+    }
+
+    document.getElementById("startBtn").onclick = startRecording;
+
+    loadModel();
+  </script>
+</body>
+</html>
